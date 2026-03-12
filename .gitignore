@@ -1,0 +1,22 @@
+# Secrets
+.env
+*.pem
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# Bot runtime
+polymarket_bot.log
+bot_status.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
