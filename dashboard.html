@@ -23,6 +23,7 @@
   .mode-sim { background: #1a3a2a; color: #00ff88; border: 1px solid #00ff88; }
   .mode-live { background: #3a1a1a; color: #ff4444; border: 1px solid #ff4444; }
   .mode-dry { background: #2a2a1a; color: #ffaa00; border: 1px solid #ffaa00; }
+  .mode-stopped { background: #2a2a2a; color: #888; border: 1px solid #555; }
 
   /* Control Buttons */
   .controls {
@@ -363,6 +364,10 @@ function confirmGoLive() {
 
 async function switchMode(mode) {
   try {
+    // Show immediate feedback
+    const labels = {simulate: 'Restarting in Simulation...', live: 'Going Live...', stop: 'Stopping...'};
+    showToast(labels[mode] || 'Switching...', false);
+
     const resp = await fetch('/api/mode', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -370,8 +375,7 @@ async function switchMode(mode) {
     });
     const result = await resp.json();
     if (result.ok) {
-      showToast('Mode: ' + mode.toUpperCase(), false);
-      updateButtons(mode);
+      setTimeout(() => showToast(mode === 'stop' ? 'Bot Stopped' : 'Bot Started — ' + mode.toUpperCase(), false), 2000);
     } else {
       showToast(result.error || 'Failed to switch mode', true);
     }
@@ -437,11 +441,14 @@ async function fetchData() {
     const badge = document.getElementById('mode-badge');
     if (d.mode === 'SIMULATION') { badge.className = 'mode-badge mode-sim'; badge.textContent = 'SIMULATION'; }
     else if (d.mode === 'LIVE') { badge.className = 'mode-badge mode-live'; badge.textContent = 'LIVE'; }
+    else if (d.mode === 'STOPPED') { badge.className = 'mode-badge mode-stopped'; badge.textContent = 'STOPPED'; }
     else { badge.className = 'mode-badge mode-dry'; badge.textContent = d.mode || 'DRY RUN'; }
 
     // Button states
+    const isStopped = d.mode === 'STOPPED';
     document.getElementById('btn-sim').classList.toggle('active', d.mode === 'SIMULATION');
     document.getElementById('btn-live').classList.toggle('active', d.mode === 'LIVE');
+    document.getElementById('btn-stop').classList.toggle('active', isStopped);
 
     // Stats
     const sim = d.simulation || {};
@@ -549,6 +556,19 @@ async function fetchData() {
 
     document.getElementById('last-update').textContent = 'Updated ' + new Date().toLocaleTimeString();
     document.getElementById('uptime').textContent = d.uptime || '';
+
+    // Update bottom bar indicator
+    const pulseEl = document.querySelector('.pulse');
+    if (isStopped) {
+      pulseEl.style.color = '#888';
+      pulseEl.nextSibling.textContent = ' Stopped';
+    } else if (d.mode === 'LIVE') {
+      pulseEl.style.color = '#ff4444';
+      pulseEl.nextSibling.textContent = ' Live';
+    } else {
+      pulseEl.style.color = '#00ff88';
+      pulseEl.nextSibling.textContent = ' Running';
+    }
   } catch(e) {
     document.getElementById('last-update').textContent = 'Error: ' + e.message;
   }

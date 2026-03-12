@@ -48,7 +48,10 @@ class CoordinatorAgent(BaseAgent):
         )
         self.agents: list[BaseAgent] = []
         self._shutdown_event = asyncio.Event()
+        self._exit_event = asyncio.Event()  # Only set when we want to kill the process
         self.dashboard = Dashboard(port=config.dashboard_port)
+        self._agents_running = False  # Track whether trading agents are active
+        self._bot_mode = "stopped"  # "stopped", "simulate", "live"
 
         # Store references for dashboard data
         self._price_analyzer = None
@@ -65,7 +68,8 @@ class CoordinatorAgent(BaseAgent):
 
     async def _handle_emergency(self, event: Event) -> None:
         logger.critical(f"EMERGENCY SHUTDOWN: {event.data}")
-        self._shutdown_event.set()
+        await self._stop_agents()
+        self._bot_mode = "stopped"
 
     def _create_agents(self) -> list[BaseAgent]:
         """Instantiate all 9 worker agents."""
@@ -111,8 +115,10 @@ class CoordinatorAgent(BaseAgent):
 
     def _get_dashboard_data(self) -> dict:
         """Build the data dict for the web dashboard."""
-        # Mode
-        if self.config.simulate:
+        # Mode — use _bot_mode for accurate state
+        if self._bot_mode == "stopped":
+            mode = "STOPPED"
+        elif self.config.simulate:
             mode = "SIMULATION"
         elif self.config.dry_run:
             mode = "DRY RUN"
@@ -229,33 +235,129 @@ class CoordinatorAgent(BaseAgent):
             return False
 
     def _handle_mode_switch(self, mode: str) -> bool:
-        """Switch bot mode from the dashboard."""
+        """Switch bot mode from the dashboard.
+
+        Stop: stops all trading agents, resets state. Dashboard stays alive.
+        Simulate: stops agents if running, resets state, restarts fresh in sim mode.
+        Live: stops agents if running, restarts in live mode (real orders).
+        """
+        # Schedule the actual async work on the event loop
         try:
-            if mode == "simulate":
-                self.config.simulate = True
-                self.config.dry_run = True
-                if not self.client.sim_exchange:
-                    from polymarket_bot.core.simulator import SimulatedExchange
-                    self.client.sim_exchange = SimulatedExchange(
-                        starting_balance=self.config.sim_balance,
-                        capital_max=self.config.trading.capital_max,
-                    )
-                    self.client.simulate = True
-                logger.info("Switched to SIMULATION mode")
-            elif mode == "live":
-                self.config.simulate = False
-                self.config.dry_run = False
-                self.client.simulate = False
-                logger.info("Switched to LIVE mode")
-            elif mode == "stop":
-                logger.info("Stop requested from dashboard")
-                self._shutdown_event.set()
-            else:
-                return False
+            loop = asyncio.get_event_loop()
+            loop.create_task(self._async_mode_switch(mode))
             return True
         except Exception as e:
             logger.error(f"Mode switch failed: {e}")
             return False
+
+    async def _async_mode_switch(self, mode: str) -> None:
+        """Async mode switch — stops agents, resets state, restarts."""
+        try:
+            if mode == "stop":
+                logger.info("=" * 40)
+                logger.info("STOP requested — shutting down agents")
+                logger.info("=" * 40)
+                await self._stop_agents()
+                self._bot_mode = "stopped"
+
+            elif mode == "simulate":
+                logger.info("=" * 40)
+                logger.info("SIMULATE requested — restarting fresh")
+                logger.info("=" * 40)
+
+                # Stop existing agents
+                await self._stop_agents()
+
+                # Reset the sim exchange (fresh state, $0 spent)
+                from polymarket_bot.core.simulator import SimulatedExchange
+                self.client.sim_exchange = SimulatedExchange(
+                    starting_balance=self.config.sim_balance,
+                    capital_max=self.config.trading.capital_max,
+                )
+                self.client.simulate = True
+                self.config.simulate = True
+                self.config.dry_run = True
+
+                # Reconnect client for market data
+                self.client.connect()
+
+                # Recreate and start agents
+                await self._start_agents()
+                self._bot_mode = "simulate"
+                logger.info("Bot restarted in SIMULATION mode (fresh state)")
+
+            elif mode == "live":
+                logger.info("=" * 40)
+                logger.info("GO LIVE requested — switching to real orders")
+                logger.info("=" * 40)
+
+                # Stop existing agents
+                await self._stop_agents()
+
+                # Switch to live mode
+                self.config.simulate = False
+                self.config.dry_run = False
+                self.client.simulate = False
+                self.client.sim_exchange = None
+
+                # Reconnect with full credentials
+                self.client.connect()
+
+                # Recreate and start agents
+                await self._start_agents()
+                self._bot_mode = "live"
+                logger.info("Bot restarted in LIVE mode (real orders!)")
+
+            else:
+                logger.warning(f"Unknown mode: {mode}")
+
+        except Exception as e:
+            logger.error(f"Mode switch error: {e}", exc_info=True)
+
+    async def _stop_agents(self) -> None:
+        """Stop all trading agents and reset the message bus."""
+        if not self._agents_running:
+            return
+
+        logger.info("Stopping all agents...")
+        for agent in reversed(self.agents):
+            try:
+                await asyncio.wait_for(agent.stop(), timeout=3.0)
+            except (asyncio.TimeoutError, Exception) as e:
+                logger.warning(f"Error stopping {agent.name}: {e}")
+
+        # Stop and restart the message bus to clear old subscriptions
+        await self._message_bus.stop()
+
+        # Clear old state
+        self._message_bus._subscribers.clear()
+        self._message_bus._queue = asyncio.Queue()
+        self._message_bus._event_log.clear()
+
+        self.agents.clear()
+        self._agents_running = False
+        logger.info("All agents stopped")
+
+    async def _start_agents(self) -> None:
+        """Create and start all trading agents."""
+        # Restart the message bus
+        await self._message_bus.start()
+
+        # Re-subscribe coordinator
+        self._setup_subscriptions()
+
+        # Create fresh agents
+        self.agents = self._create_agents()
+        logger.info(f"Created {len(self.agents)} worker agents")
+
+        # Start agents with stagger
+        for i, agent in enumerate(self.agents):
+            await agent.start()
+            if i < len(self.agents) - 1:
+                await asyncio.sleep(self.config.agents.agent_startup_delay)
+
+        self._agents_running = True
+        logger.info("All agents started!")
 
     async def initialize(self) -> None:
         """Connect to Polymarket and set up all agents."""
@@ -285,7 +387,11 @@ class CoordinatorAgent(BaseAgent):
         logger.info(f"Created {len(self.agents)} worker agents (+1 coordinator = 10 total)")
 
     async def run(self) -> None:
-        """Main entry point — start everything and run until shutdown."""
+        """Main entry point — start everything and run until shutdown.
+
+        The dashboard stays alive even when agents are stopped.
+        Only SIGINT/SIGTERM or _exit_event kills the whole process.
+        """
         await self.initialize()
 
         # Start dashboard with data provider and control handlers
@@ -306,37 +412,31 @@ class CoordinatorAgent(BaseAgent):
             if i < len(self.agents) - 1:
                 await asyncio.sleep(self.config.agents.agent_startup_delay)
 
+        self._agents_running = True
+        self._bot_mode = "simulate" if self.config.simulate else ("live" if not self.config.dry_run else "dry_run")
+
         logger.info("All 10 agents running!")
         logger.info(f"Dashboard: http://localhost:{self.config.dashboard_port}")
         logger.info("-" * 60)
 
-        # Register signal handlers
+        # Register signal handlers — these kill the process
         loop = asyncio.get_event_loop()
         for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.add_signal_handler(sig, lambda: self._shutdown_event.set())
+            loop.add_signal_handler(sig, lambda: self._exit_event.set())
 
-        # Run until shutdown
-        await self._shutdown_event.wait()
+        # Run until process exit (SIGINT/SIGTERM)
+        await self._exit_event.wait()
         await self.shutdown()
 
     async def shutdown(self) -> None:
-        """Graceful shutdown — stop all agents and clean up."""
-        logger.info("Initiating graceful shutdown...")
+        """Full process shutdown — stop agents, dashboard, everything."""
+        logger.info("Initiating full shutdown...")
+
+        # Stop trading agents
+        await self._stop_agents()
 
         # Stop dashboard
         await self.dashboard.stop()
-
-        # Stop agents in reverse order
-        for agent in reversed(self.agents):
-            try:
-                await asyncio.wait_for(agent.stop(), timeout=self.config.agents.shutdown_timeout)
-            except asyncio.TimeoutError:
-                logger.warning(f"Timeout stopping {agent.name}")
-            except Exception as e:
-                logger.error(f"Error stopping {agent.name}: {e}")
-
-        # Stop message bus
-        await self._message_bus.stop()
 
         # Print simulation summary if applicable
         if self.config.simulate and self.client.sim_exchange:
