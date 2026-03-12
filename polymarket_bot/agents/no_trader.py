@@ -79,7 +79,7 @@ class NoTraderAgent(BaseAgent):
 
     async def _place_order(self, condition_id: str, order_req: dict) -> None:
         """Place a NO BUY order."""
-        dry_run = self.config.dry_run
+        dry_run = self.config.dry_run and not self.config.simulate
 
         if dry_run:
             order_id = f"dry_no_{condition_id[:8]}_{datetime.utcnow().timestamp()}"
@@ -131,7 +131,7 @@ class NoTraderAgent(BaseAgent):
         ))
 
     async def _check_active_orders(self) -> None:
-        if self.config.dry_run:
+        if self.config.dry_run and not self.config.simulate:
             return
 
         try:
@@ -152,7 +152,7 @@ class NoTraderAgent(BaseAgent):
             self.logger.error(f"Failed to check NO order status: {e}")
 
     async def _cancel_all_active(self) -> None:
-        if self.config.dry_run:
+        if self.config.dry_run and not self.config.simulate:
             self.active_orders.clear()
             return
 

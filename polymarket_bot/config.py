@@ -92,5 +92,10 @@ class BotConfig:
     log_level: str = "INFO"
     log_file: str = "polymarket_bot.log"
 
-    # Dry run mode — simulates trades without placing real orders
+    # Run modes:
+    #   dry_run=True,  simulate=False  → no API, no trades, just agent loops
+    #   dry_run=True,  simulate=True   → real market data, simulated trades
+    #   dry_run=False, simulate=False  → LIVE trading
     dry_run: bool = True
+    simulate: bool = False
+    sim_balance: float = 1000.0  # Starting USDC for simulation

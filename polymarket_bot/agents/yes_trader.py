@@ -83,7 +83,7 @@ class YesTraderAgent(BaseAgent):
 
     async def _place_order(self, condition_id: str, order_req: dict) -> None:
         """Place a YES BUY order."""
-        dry_run = self.config.dry_run
+        dry_run = self.config.dry_run and not self.config.simulate
 
         if dry_run:
             order_id = f"dry_yes_{condition_id[:8]}_{datetime.utcnow().timestamp()}"
@@ -136,7 +136,7 @@ class YesTraderAgent(BaseAgent):
 
     async def _check_active_orders(self) -> None:
         """Check status of active orders."""
-        if self.config.dry_run:
+        if self.config.dry_run and not self.config.simulate:
             return
 
         try:
@@ -158,7 +158,7 @@ class YesTraderAgent(BaseAgent):
 
     async def _cancel_all_active(self) -> None:
         """Cancel all active YES orders."""
-        if self.config.dry_run:
+        if self.config.dry_run and not self.config.simulate:
             self.active_orders.clear()
             return
 

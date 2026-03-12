@@ -37,7 +37,11 @@ class CoordinatorAgent(BaseAgent):
         self._message_bus = MessageBus()
         super().__init__("Coordinator", config, self._message_bus)
 
-        self.client = PolymarketClient(config.polymarket)
+        self.client = PolymarketClient(
+            config.polymarket,
+            simulate=config.simulate,
+            sim_balance=config.sim_balance,
+        )
         self.agents: list[BaseAgent] = []
         self._shutdown_event = asyncio.Event()
 
@@ -87,12 +91,24 @@ class CoordinatorAgent(BaseAgent):
 
     async def initialize(self) -> None:
         """Connect to Polymarket and set up all agents."""
+        if self.config.simulate:
+            mode = f"SIMULATION (${self.config.sim_balance:.0f} virtual balance)"
+        elif self.config.dry_run:
+            mode = "DRY RUN"
+        else:
+            mode = "LIVE TRADING"
+
         logger.info("=" * 60)
         logger.info("POLYMARKET MARKET MAKER BOT")
-        logger.info(f"Mode: {'DRY RUN' if self.config.dry_run else 'LIVE TRADING'}")
+        logger.info(f"Mode: {mode}")
         logger.info("=" * 60)
 
-        if not self.config.dry_run:
+        if self.config.simulate:
+            # Simulation: connect to real API for market data, but trade via simulator
+            logger.info("Connecting to Polymarket API for real market data...")
+            self.client.connect()
+            logger.info(f"Simulation exchange initialized with ${self.config.sim_balance:.0f} USDC")
+        elif not self.config.dry_run:
             logger.info("Connecting to Polymarket CLOB API...")
             self.client.connect()
         else:
@@ -144,6 +160,10 @@ class CoordinatorAgent(BaseAgent):
 
         # Stop message bus
         await self._message_bus.stop()
+
+        # Print simulation summary if applicable
+        if self.config.simulate and self.client.sim_exchange:
+            logger.info("\n" + self.client.sim_exchange.print_summary())
 
         # Close API client
         await self.client.close()

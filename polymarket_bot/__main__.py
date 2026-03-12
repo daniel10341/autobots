@@ -40,6 +40,17 @@ def parse_args() -> argparse.Namespace:
         help="Run in live trading mode (default is dry run)",
     )
     parser.add_argument(
+        "--simulate",
+        action="store_true",
+        help="Simulation mode: real market data, fake trades with virtual balance",
+    )
+    parser.add_argument(
+        "--sim-balance",
+        type=float,
+        default=1000.0,
+        help="Starting virtual USDC balance for simulation (default: 1000)",
+    )
+    parser.add_argument(
         "--max-exposure",
         type=float,
         default=None,
@@ -77,6 +88,8 @@ def main() -> None:
 
     config = BotConfig()
     config.dry_run = not args.live
+    config.simulate = args.simulate
+    config.sim_balance = args.sim_balance
     config.log_level = args.log_level
 
     if args.max_exposure is not None:
@@ -93,7 +106,9 @@ def main() -> None:
     logger = logging.getLogger("polymarket_bot")
     logger.info("Starting Polymarket Market Maker Bot...")
 
-    if config.dry_run:
+    if config.simulate:
+        logger.info(f"*** SIMULATION MODE — Virtual ${config.sim_balance:.0f} USDC, real market data ***")
+    elif config.dry_run:
         logger.info("*** DRY RUN MODE — No real orders will be placed ***")
     else:
         logger.warning("*** LIVE TRADING MODE — Real money at risk! ***")

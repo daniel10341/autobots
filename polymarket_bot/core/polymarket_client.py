@@ -9,6 +9,7 @@ from py_clob_client.clob_types import OrderArgs, OrderType
 from py_clob_client.order_builder.constants import BUY, SELL
 
 from polymarket_bot.config import PolymarketConfig
+from polymarket_bot.core.simulator import SimulatedExchange
 from polymarket_bot.models.market import (
     Market,
     Order,
@@ -27,27 +28,41 @@ class PolymarketClient:
     """Unified client for Polymarket CLOB and Gamma APIs.
 
     Wraps py-clob-client and provides methods used by all agents.
+    In simulation mode, uses real market data but simulated execution.
     """
 
-    def __init__(self, config: PolymarketConfig) -> None:
+    def __init__(self, config: PolymarketConfig, simulate: bool = False, sim_balance: float = 1000.0) -> None:
         self.config = config
         self._clob: Optional[ClobClient] = None
         self._http = httpx.AsyncClient(timeout=30.0)
+        self.simulate = simulate
+        self.sim_exchange: Optional[SimulatedExchange] = None
+        if simulate:
+            self.sim_exchange = SimulatedExchange(starting_balance=sim_balance)
 
     def connect(self) -> None:
         """Initialize the CLOB client with credentials."""
-        self.config.validate()
-        self._clob = ClobClient(
-            self.config.clob_api_url,
-            key=self.config.private_key,
-            chain_id=self.config.chain_id,
-            creds={
-                "apiKey": self.config.api_key,
-                "secret": self.config.api_secret,
-                "passphrase": self.config.api_passphrase,
-            },
-        )
-        logger.info("Connected to Polymarket CLOB API")
+        if self.simulate:
+            # Simulation mode: create a read-only CLOB client (no signing needed)
+            # We only use it for fetching order books, not placing real orders
+            self._clob = ClobClient(
+                self.config.clob_api_url,
+                chain_id=self.config.chain_id,
+            )
+            logger.info("Connected to Polymarket CLOB API (read-only, simulation mode)")
+        else:
+            self.config.validate()
+            self._clob = ClobClient(
+                self.config.clob_api_url,
+                key=self.config.private_key,
+                chain_id=self.config.chain_id,
+                creds={
+                    "apiKey": self.config.api_key,
+                    "secret": self.config.api_secret,
+                    "passphrase": self.config.api_passphrase,
+                },
+            )
+            logger.info("Connected to Polymarket CLOB API")
 
     @property
     def clob(self) -> ClobClient:
@@ -111,7 +126,11 @@ class PolymarketClient:
     # ── Order Book ────────────────────────────────────────────────
 
     def get_order_book(self, token_id: str) -> dict[str, Any]:
-        """Fetch the order book for a token (sync, via CLOB client)."""
+        """Fetch the order book for a token.
+
+        In simulation mode, still fetches REAL order book data from
+        the CLOB API so prices reflect actual market conditions.
+        """
         return self.clob.get_order_book(token_id)
 
     def parse_order_book(self, raw: dict[str, Any], token_id: str, side: Side) -> OrderBook:
@@ -139,7 +158,10 @@ class PolymarketClient:
         price: float,
         size: float,
     ) -> dict[str, Any]:
-        """Place a limit order on the CLOB."""
+        """Place a limit order. Routes to simulator or real CLOB."""
+        if self.simulate and self.sim_exchange:
+            return self.sim_exchange.place_order(token_id, action, price, size)
+
         clob_side = BUY if action == OrderAction.BUY else SELL
         order_args = OrderArgs(
             price=price,
@@ -154,18 +176,24 @@ class PolymarketClient:
 
     def cancel_order(self, order_id: str) -> dict[str, Any]:
         """Cancel an open order."""
+        if self.simulate and self.sim_exchange:
+            return self.sim_exchange.cancel_order(order_id)
         result = self.clob.cancel(order_id)
         logger.info(f"Order cancelled: {order_id}")
         return result
 
     def cancel_all_orders(self) -> dict[str, Any]:
         """Cancel all open orders."""
+        if self.simulate and self.sim_exchange:
+            return self.sim_exchange.cancel_all()
         result = self.clob.cancel_all()
         logger.info("All orders cancelled")
         return result
 
     def get_open_orders(self) -> list[dict[str, Any]]:
         """Get all open orders for this account."""
+        if self.simulate and self.sim_exchange:
+            return self.sim_exchange.get_orders()
         return self.clob.get_orders()
 
     def parse_order(self, raw: dict[str, Any]) -> Order:
