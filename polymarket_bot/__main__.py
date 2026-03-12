@@ -81,6 +81,17 @@ def parse_args() -> argparse.Namespace:
         help="Hard cap on total USDC the bot will spend (0 = unlimited)",
     )
     parser.add_argument(
+        "--btc-only",
+        action="store_true",
+        default=True,
+        help="Only trade BTC 5-minute Up/Down markets (default: True)",
+    )
+    parser.add_argument(
+        "--all-markets",
+        action="store_true",
+        help="Trade all markets, not just BTC 5-minute",
+    )
+    parser.add_argument(
         "--port",
         type=int,
         default=8080,
@@ -104,6 +115,7 @@ def main() -> None:
     config.sim_balance = args.sim_balance
     config.dashboard_port = args.port
     config.log_level = args.log_level
+    config.btc_only = args.btc_only and not args.all_markets
 
     if args.max_exposure is not None:
         config.trading.max_total_exposure = args.max_exposure

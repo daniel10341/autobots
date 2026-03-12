@@ -49,9 +49,16 @@ class PriceAnalyzerAgent(BaseAgent):
         if not self.tracked_markets:
             return
 
+        self.logger.info(f"Analyzing {len(self.tracked_markets)} markets...")
+        analyzed = 0
         for cid, market_data in list(self.tracked_markets.items()):
-            await self._analyze_market(cid, market_data)
-            await asyncio.sleep(0.2)  # Rate limit
+            try:
+                await asyncio.wait_for(self._analyze_market(cid, market_data), timeout=10.0)
+                analyzed += 1
+            except asyncio.TimeoutError:
+                self.logger.warning(f"Timeout analyzing {cid[:12]}...")
+            await asyncio.sleep(0.1)  # Rate limit
+        self.logger.info(f"Analyzed {analyzed}/{len(self.tracked_markets)} markets, {len(self.active_opportunities)} opportunities")
 
     async def _analyze_market(self, condition_id: str, market_data: dict) -> None:
         """Analyze a single market for spread opportunity."""
@@ -62,13 +69,15 @@ class PriceAnalyzerAgent(BaseAgent):
             return
 
         try:
-            # Fetch order books for both sides
+            # Fetch order books for both sides (with 5s timeout each)
             loop = asyncio.get_running_loop()
-            yes_book_raw = await loop.run_in_executor(
-                None, self.client.get_order_book, yes_token_id
+            yes_book_raw = await asyncio.wait_for(
+                loop.run_in_executor(None, self.client.get_order_book, yes_token_id),
+                timeout=5.0,
             )
-            no_book_raw = await loop.run_in_executor(
-                None, self.client.get_order_book, no_token_id
+            no_book_raw = await asyncio.wait_for(
+                loop.run_in_executor(None, self.client.get_order_book, no_token_id),
+                timeout=5.0,
             )
 
             yes_book = self.client.parse_order_book(yes_book_raw, yes_token_id, Side.YES)

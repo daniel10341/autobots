@@ -35,6 +35,8 @@ class MarketScannerAgent(BaseAgent):
 
     async def run_cycle(self) -> None:
         """Scan for new markets meeting our criteria."""
+        if self.config.btc_only:
+            return  # BTC scanner handles discovery in btc-only mode
         self.logger.debug("Scanning for markets...")
 
         try:

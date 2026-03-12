@@ -90,9 +90,9 @@ class CoordinatorAgent(BaseAgent):
         self._portfolio = portfolio
         self._execution = execution
 
+        # Start order matters: downstream agents must subscribe before
+        # upstream agents publish events. Scanners go LAST.
         agents = [
-            market_scanner,
-            btc_scanner,
             price_analyzer,
             orderbook,
             risk_manager,
@@ -100,6 +100,8 @@ class CoordinatorAgent(BaseAgent):
             yes_trader,
             no_trader,
             portfolio,
+            market_scanner,
+            btc_scanner,
         ]
 
         monitor = MonitorAgent(cfg, bus, [self] + agents)

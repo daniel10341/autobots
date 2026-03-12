@@ -149,24 +149,37 @@ class PolymarketClient:
 
     # ── Order Book ────────────────────────────────────────────────
 
-    def get_order_book(self, token_id: str) -> dict[str, Any]:
+    def get_order_book(self, token_id: str) -> Any:
         """Fetch the order book for a token.
 
         In simulation mode, still fetches REAL order book data from
         the CLOB API so prices reflect actual market conditions.
+        Returns an OrderBookSummary object or dict.
         """
         return self.clob.get_order_book(token_id)
 
-    def parse_order_book(self, raw: dict[str, Any], token_id: str, side: Side) -> OrderBook:
-        """Parse raw order book data into our OrderBook model."""
-        bids = [
-            OrderBookLevel(price=float(b.get("price", 0)), size=float(b.get("size", 0)))
-            for b in raw.get("bids", [])
-        ]
-        asks = [
-            OrderBookLevel(price=float(a.get("price", 0)), size=float(a.get("size", 0)))
-            for a in raw.get("asks", [])
-        ]
+    def parse_order_book(self, raw: Any, token_id: str, side: Side) -> OrderBook:
+        """Parse raw order book data into our OrderBook model.
+
+        Handles both dict format and py-clob-client OrderBookSummary objects.
+        """
+        # Get bids/asks — handle both dict and object attribute access
+        if isinstance(raw, dict):
+            raw_bids = raw.get("bids", [])
+            raw_asks = raw.get("asks", [])
+        else:
+            raw_bids = getattr(raw, "bids", []) or []
+            raw_asks = getattr(raw, "asks", []) or []
+
+        def parse_level(entry: Any) -> OrderBookLevel:
+            if isinstance(entry, dict):
+                return OrderBookLevel(price=float(entry.get("price", 0)), size=float(entry.get("size", 0)))
+            else:
+                return OrderBookLevel(price=float(getattr(entry, "price", 0)), size=float(getattr(entry, "size", 0)))
+
+        bids = [parse_level(b) for b in raw_bids]
+        asks = [parse_level(a) for a in raw_asks]
+
         # Sort: bids descending, asks ascending
         bids.sort(key=lambda x: x.price, reverse=True)
         asks.sort(key=lambda x: x.price)

@@ -101,5 +101,8 @@ class BotConfig:
     simulate: bool = False
     sim_balance: float = 1000.0  # Starting USDC for simulation
 
+    # Market focus
+    btc_only: bool = False  # Only trade BTC 5-minute markets
+
     # Dashboard
     dashboard_port: int = 8080
