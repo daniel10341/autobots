@@ -55,12 +55,7 @@ class BtcScannerAgent(BaseAgent):
                 continue
 
             try:
-                resp = await self.client._http.get(
-                    f"{self.client.config.gamma_api_url}/events",
-                    params={"slug": slug},
-                )
-                resp.raise_for_status()
-                events = resp.json()
+                events = await self.client.get_event(slug)
 
                 if not events:
                     continue

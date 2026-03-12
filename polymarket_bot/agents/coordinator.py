@@ -190,6 +190,16 @@ class CoordinatorAgent(BaseAgent):
             "price_update_interval": self.config.agents.price_update_interval,
         }
 
+        # Cache stats
+        ob_cache = self.client._orderbook_cache
+        mkt_cache = self.client._market_cache
+        evt_cache = self.client._event_cache
+        cache_data = {
+            "orderbook": {"hits": ob_cache.hits, "misses": ob_cache.misses, "size": ob_cache.size},
+            "market": {"hits": mkt_cache.hits, "misses": mkt_cache.misses, "size": mkt_cache.size},
+            "event": {"hits": evt_cache.hits, "misses": evt_cache.misses, "size": evt_cache.size},
+        }
+
         return {
             "mode": mode,
             "agents": agent_statuses,
@@ -201,6 +211,7 @@ class CoordinatorAgent(BaseAgent):
             "recent_trades": recent_trades,
             "markets_tracked": markets_tracked,
             "config": config_data,
+            "cache": cache_data,
         }
 
     def _handle_config_update(self, config_dict: dict) -> bool:

@@ -1,6 +1,7 @@
 """Polymarket CLOB API client wrapper."""
 
 import logging
+import time
 from typing import Any, Optional
 
 import httpx
@@ -24,6 +25,48 @@ from polymarket_bot.models.market import (
 logger = logging.getLogger(__name__)
 
 
+class TTLCache:
+    """Simple in-memory cache with per-key TTL."""
+
+    def __init__(self, default_ttl: float = 2.0) -> None:
+        self._store: dict[str, tuple[float, Any]] = {}  # key -> (expires_at, value)
+        self.default_ttl = default_ttl
+        self.hits = 0
+        self.misses = 0
+
+    def get(self, key: str) -> Optional[Any]:
+        entry = self._store.get(key)
+        if entry is None:
+            self.misses += 1
+            return None
+        expires_at, value = entry
+        if time.monotonic() > expires_at:
+            del self._store[key]
+            self.misses += 1
+            return None
+        self.hits += 1
+        return value
+
+    def set(self, key: str, value: Any, ttl: Optional[float] = None) -> None:
+        self._store[key] = (time.monotonic() + (ttl or self.default_ttl), value)
+
+    def invalidate(self, key: str) -> None:
+        self._store.pop(key, None)
+
+    def clear(self) -> None:
+        self._store.clear()
+
+    def evict_expired(self) -> None:
+        now = time.monotonic()
+        expired = [k for k, (exp, _) in self._store.items() if now > exp]
+        for k in expired:
+            del self._store[k]
+
+    @property
+    def size(self) -> int:
+        return len(self._store)
+
+
 class PolymarketClient:
     """Unified client for Polymarket CLOB and Gamma APIs.
 
@@ -39,6 +82,11 @@ class PolymarketClient:
         self.sim_exchange: Optional[SimulatedExchange] = None
         if simulate:
             self.sim_exchange = SimulatedExchange(starting_balance=sim_balance, capital_max=capital_max)
+
+        # Caches — order books change fast (2s TTL), markets are slower (30s TTL)
+        self._orderbook_cache = TTLCache(default_ttl=2.0)
+        self._market_cache = TTLCache(default_ttl=30.0)
+        self._event_cache = TTLCache(default_ttl=30.0)
 
     def connect(self) -> None:
         """Initialize the CLOB client with credentials."""
@@ -73,7 +121,11 @@ class PolymarketClient:
     # ── Market Discovery ──────────────────────────────────────────
 
     async def get_active_markets(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
-        """Fetch active markets from the Gamma API."""
+        """Fetch active markets from the Gamma API (cached 30s)."""
+        cache_key = f"markets:{limit}:{offset}"
+        cached = self._market_cache.get(cache_key)
+        if cached is not None:
+            return cached
         resp = await self._http.get(
             f"{self.config.gamma_api_url}/markets",
             params={
@@ -84,15 +136,38 @@ class PolymarketClient:
             },
         )
         resp.raise_for_status()
-        return resp.json()
+        result = resp.json()
+        self._market_cache.set(cache_key, result)
+        return result
 
     async def get_market(self, condition_id: str) -> dict[str, Any]:
-        """Fetch a single market by condition ID."""
+        """Fetch a single market by condition ID (cached 30s)."""
+        cache_key = f"market:{condition_id}"
+        cached = self._market_cache.get(cache_key)
+        if cached is not None:
+            return cached
         resp = await self._http.get(
             f"{self.config.gamma_api_url}/markets/{condition_id}"
         )
         resp.raise_for_status()
-        return resp.json()
+        result = resp.json()
+        self._market_cache.set(cache_key, result)
+        return result
+
+    async def get_event(self, slug: str) -> list[dict[str, Any]]:
+        """Fetch events by slug from the Gamma API (cached 30s)."""
+        cache_key = f"event:{slug}"
+        cached = self._event_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        resp = await self._http.get(
+            f"{self.config.gamma_api_url}/events",
+            params={"slug": slug},
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        self._event_cache.set(cache_key, result)
+        return result
 
     def parse_market(self, raw: dict[str, Any]) -> Market:
         """Parse a raw Gamma API market into our Market model."""
@@ -150,13 +225,19 @@ class PolymarketClient:
     # ── Order Book ────────────────────────────────────────────────
 
     def get_order_book(self, token_id: str) -> Any:
-        """Fetch the order book for a token.
+        """Fetch the order book for a token (cached 2s).
 
         In simulation mode, still fetches REAL order book data from
         the CLOB API so prices reflect actual market conditions.
         Returns an OrderBookSummary object or dict.
         """
-        return self.clob.get_order_book(token_id)
+        cache_key = f"book:{token_id}"
+        cached = self._orderbook_cache.get(cache_key)
+        if cached is not None:
+            return cached
+        result = self.clob.get_order_book(token_id)
+        self._orderbook_cache.set(cache_key, result)
+        return result
 
     def parse_order_book(self, raw: Any, token_id: str, side: Side) -> OrderBook:
         """Parse raw order book data into our OrderBook model.
@@ -208,6 +289,7 @@ class PolymarketClient:
         )
         signed_order = self.clob.create_order(order_args)
         result = self.clob.post_order(signed_order, OrderType.GTC)
+        self._market_cache.invalidate("open_orders")
         logger.info(f"Order placed: {action.value} {size}@{price} token={token_id[:8]}... result={result}")
         return result
 
@@ -216,6 +298,7 @@ class PolymarketClient:
         if self.simulate and self.sim_exchange:
             return self.sim_exchange.cancel_order(order_id)
         result = self.clob.cancel(order_id)
+        self._market_cache.invalidate("open_orders")
         logger.info(f"Order cancelled: {order_id}")
         return result
 
@@ -224,14 +307,20 @@ class PolymarketClient:
         if self.simulate and self.sim_exchange:
             return self.sim_exchange.cancel_all()
         result = self.clob.cancel_all()
+        self._market_cache.invalidate("open_orders")
         logger.info("All orders cancelled")
         return result
 
     def get_open_orders(self) -> list[dict[str, Any]]:
-        """Get all open orders for this account."""
+        """Get all open orders for this account (cached 5s)."""
         if self.simulate and self.sim_exchange:
             return self.sim_exchange.get_orders()
-        return self.clob.get_orders()
+        cached = self._market_cache.get("open_orders")
+        if cached is not None:
+            return cached
+        result = self.clob.get_orders()
+        self._market_cache.set("open_orders", result, ttl=5.0)
+        return result
 
     def parse_order(self, raw: dict[str, Any]) -> Order:
         """Parse a raw order response into our Order model."""
