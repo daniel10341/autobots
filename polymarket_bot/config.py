@@ -99,3 +99,6 @@ class BotConfig:
     dry_run: bool = True
     simulate: bool = False
     sim_balance: float = 1000.0  # Starting USDC for simulation
+
+    # Dashboard
+    dashboard_port: int = 8080

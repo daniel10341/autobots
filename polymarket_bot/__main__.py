@@ -75,6 +75,12 @@ def parse_args() -> argparse.Namespace:
         help="Max number of markets to trade simultaneously",
     )
     parser.add_argument(
+        "--port",
+        type=int,
+        default=8080,
+        help="Dashboard web port (default: 8080)",
+    )
+    parser.add_argument(
         "--log-level",
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
@@ -90,6 +96,7 @@ def main() -> None:
     config.dry_run = not args.live
     config.simulate = args.simulate
     config.sim_balance = args.sim_balance
+    config.dashboard_port = args.port
     config.log_level = args.log_level
 
     if args.max_exposure is not None:

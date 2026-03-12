@@ -8,6 +8,7 @@ from polymarket_bot.config import BotConfig
 from polymarket_bot.core.base_agent import BaseAgent
 from polymarket_bot.core.message_bus import MessageBus
 from polymarket_bot.core.polymarket_client import PolymarketClient
+from polymarket_bot.core.dashboard import Dashboard
 from polymarket_bot.models.events import Event, EventType
 
 from polymarket_bot.agents.market_scanner import MarketScannerAgent
@@ -31,6 +32,7 @@ class CoordinatorAgent(BaseAgent):
     - Start all agents in the correct order
     - Handle graceful shutdown (SIGINT/SIGTERM)
     - Respond to EMERGENCY_SHUTDOWN events
+    - Host the web dashboard
     """
 
     def __init__(self, config: BotConfig) -> None:
@@ -44,10 +46,17 @@ class CoordinatorAgent(BaseAgent):
         )
         self.agents: list[BaseAgent] = []
         self._shutdown_event = asyncio.Event()
+        self.dashboard = Dashboard(port=config.dashboard_port)
+
+        # Store references for dashboard data
+        self._price_analyzer = None
+        self._portfolio = None
+        self._market_scanner = None
+        self._execution = None
 
     @property
     def cycle_interval(self) -> float:
-        return 60.0  # Coordinator checks in every minute
+        return 60.0
 
     def _setup_subscriptions(self) -> None:
         self.bus.subscribe(EventType.EMERGENCY_SHUTDOWN, self._handle_emergency)
@@ -62,7 +71,6 @@ class CoordinatorAgent(BaseAgent):
         cfg = self.config
         client = self.client
 
-        # Create agents in dependency order
         market_scanner = MarketScannerAgent(cfg, bus, client)
         price_analyzer = PriceAnalyzerAgent(cfg, bus, client)
         orderbook = OrderBookAgent(cfg, bus, client)
@@ -71,6 +79,12 @@ class CoordinatorAgent(BaseAgent):
         yes_trader = YesTraderAgent(cfg, bus, client)
         no_trader = NoTraderAgent(cfg, bus, client)
         portfolio = PortfolioAgent(cfg, bus)
+
+        # Keep references for dashboard
+        self._market_scanner = market_scanner
+        self._price_analyzer = price_analyzer
+        self._portfolio = portfolio
+        self._execution = execution
 
         agents = [
             market_scanner,
@@ -83,11 +97,70 @@ class CoordinatorAgent(BaseAgent):
             portfolio,
         ]
 
-        # Monitor gets references to all agents for health checks
         monitor = MonitorAgent(cfg, bus, [self] + agents)
         agents.append(monitor)
 
         return agents
+
+    def _get_dashboard_data(self) -> dict:
+        """Build the data dict for the web dashboard."""
+        # Mode
+        if self.config.simulate:
+            mode = "SIMULATION"
+        elif self.config.dry_run:
+            mode = "DRY RUN"
+        else:
+            mode = "LIVE"
+
+        # Agent statuses
+        agent_statuses = [self.status] + [a.status for a in self.agents]
+
+        # Simulation data
+        sim_data = {}
+        if self.client.sim_exchange:
+            sim_data = self.client.sim_exchange.summary()
+
+        # Opportunities from price analyzer
+        opportunities = []
+        if self._price_analyzer:
+            for cid, opp in self._price_analyzer.active_opportunities.items():
+                opportunities.append({
+                    "condition_id": cid,
+                    "question": opp.get("question", ""),
+                    "yes_ask": opp.get("yes_ask", 0),
+                    "no_ask": opp.get("no_ask", 0),
+                    "combined": opp.get("combined_cost", 0),
+                    "profit": opp.get("profit_per_pair", 0),
+                })
+
+        # Portfolio
+        portfolio_data = {}
+        if self._portfolio:
+            total_guaranteed = sum(p.guaranteed_profit for p in self._portfolio.positions.values())
+            total_hedged = sum(p.hedged_pairs for p in self._portfolio.positions.values())
+            portfolio_data = {
+                "hedged_pairs": total_hedged,
+                "guaranteed_profit": total_guaranteed,
+                "total_invested": self._portfolio.total_invested,
+            }
+
+        # Recent trades
+        recent_trades = []
+        if self.client.sim_exchange:
+            recent_trades = self.client.sim_exchange.trade_history[-20:]
+
+        # Markets tracked
+        markets_tracked = len(self._market_scanner.known_markets) if self._market_scanner else 0
+
+        return {
+            "mode": mode,
+            "agents": agent_statuses,
+            "simulation": sim_data,
+            "portfolio": portfolio_data,
+            "opportunities": opportunities,
+            "recent_trades": recent_trades,
+            "markets_tracked": markets_tracked,
+        }
 
     async def initialize(self) -> None:
         """Connect to Polymarket and set up all agents."""
@@ -104,7 +177,6 @@ class CoordinatorAgent(BaseAgent):
         logger.info("=" * 60)
 
         if self.config.simulate:
-            # Simulation: connect to real API for market data, but trade via simulator
             logger.info("Connecting to Polymarket API for real market data...")
             self.client.connect()
             logger.info(f"Simulation exchange initialized with ${self.config.sim_balance:.0f} USDC")
@@ -121,6 +193,10 @@ class CoordinatorAgent(BaseAgent):
         """Main entry point — start everything and run until shutdown."""
         await self.initialize()
 
+        # Start dashboard
+        self.dashboard.set_data_provider(self._get_dashboard_data)
+        await self.dashboard.start()
+
         # Start the message bus
         await self._message_bus.start()
 
@@ -134,6 +210,7 @@ class CoordinatorAgent(BaseAgent):
                 await asyncio.sleep(self.config.agents.agent_startup_delay)
 
         logger.info("All 10 agents running!")
+        logger.info(f"Dashboard: http://localhost:{self.config.dashboard_port}")
         logger.info("-" * 60)
 
         # Register signal handlers
@@ -148,6 +225,9 @@ class CoordinatorAgent(BaseAgent):
     async def shutdown(self) -> None:
         """Graceful shutdown — stop all agents and clean up."""
         logger.info("Initiating graceful shutdown...")
+
+        # Stop dashboard
+        await self.dashboard.stop()
 
         # Stop agents in reverse order
         for agent in reversed(self.agents):

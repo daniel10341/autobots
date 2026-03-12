@@ -57,11 +57,12 @@ class MarketScannerAgent(BaseAgent):
             if not market.yes_token or not market.no_token:
                 continue
 
-            # Apply filters
-            if market.liquidity < trading.min_market_liquidity:
-                continue
-            if market.volume_24h < trading.min_volume_24h:
-                continue
+            # In simulation mode, accept any market with both tokens
+            if not self.config.simulate:
+                if market.liquidity < trading.min_market_liquidity:
+                    continue
+                if market.volume_24h < trading.min_volume_24h:
+                    continue
 
             # Check if we're at max markets
             if len(self.known_markets) >= trading.max_markets:

@@ -96,31 +96,55 @@ class PolymarketClient:
 
     def parse_market(self, raw: dict[str, Any]) -> Market:
         """Parse a raw Gamma API market into our Market model."""
-        tokens = raw.get("tokens", [])
         yes_token = None
         no_token = None
 
-        for t in tokens:
-            outcome = t.get("outcome", "").upper()
-            token = Token(
-                token_id=t.get("token_id", ""),
-                side=Side.YES if outcome == "YES" else Side.NO,
-                price=float(t.get("price", 0)),
-            )
-            if outcome == "YES":
-                yes_token = token
-            elif outcome == "NO":
-                no_token = token
+        # Gamma API uses clobTokenIds [yes_id, no_id] and outcomePrices
+        clob_ids = raw.get("clobTokenIds", [])
+        if isinstance(clob_ids, str):
+            import json as _json
+            try:
+                clob_ids = _json.loads(clob_ids)
+            except Exception:
+                clob_ids = []
+
+        outcome_prices = raw.get("outcomePrices", [])
+        if isinstance(outcome_prices, str):
+            import json as _json
+            try:
+                outcome_prices = _json.loads(outcome_prices)
+            except Exception:
+                outcome_prices = []
+
+        if len(clob_ids) >= 2:
+            yes_price = float(outcome_prices[0]) if len(outcome_prices) >= 1 else 0
+            no_price = float(outcome_prices[1]) if len(outcome_prices) >= 2 else 0
+            yes_token = Token(token_id=clob_ids[0], side=Side.YES, price=yes_price)
+            no_token = Token(token_id=clob_ids[1], side=Side.NO, price=no_price)
+
+        # Also try legacy "tokens" array format
+        if not yes_token:
+            for t in raw.get("tokens", []):
+                outcome = t.get("outcome", "").upper()
+                token = Token(
+                    token_id=t.get("token_id", ""),
+                    side=Side.YES if outcome == "YES" else Side.NO,
+                    price=float(t.get("price", 0)),
+                )
+                if outcome == "YES":
+                    yes_token = token
+                elif outcome == "NO":
+                    no_token = token
 
         return Market(
-            condition_id=raw.get("condition_id", ""),
+            condition_id=raw.get("conditionId", raw.get("condition_id", "")),
             question=raw.get("question", ""),
             slug=raw.get("slug", ""),
             yes_token=yes_token,
             no_token=no_token,
             active=raw.get("active", True),
-            volume_24h=float(raw.get("volume_num_24hr", 0) or 0),
-            liquidity=float(raw.get("liquidity_num", 0) or 0),
+            volume_24h=float(raw.get("volumeNum", raw.get("volume_num_24hr", 0)) or 0),
+            liquidity=float(raw.get("liquidityNum", raw.get("liquidity_num", 0)) or 0),
         )
 
     # ── Order Book ────────────────────────────────────────────────
