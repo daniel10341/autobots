@@ -115,11 +115,18 @@ class BtcScannerAgent(BaseAgent):
         now = int(time.time())
         expired = [s for s, d in self.active_markets.items() if d["window_end"] < now - 60]
         for slug in expired:
-            del self.active_markets[slug]
+            expired_data = self.active_markets.pop(slug)
+            cid = expired_data.get("condition_id", "")
+            # Publish both EXPIRED and REMOVED so all agents clean up
             await self.bus.publish(Event(
                 event_type=EventType.MARKET_EXPIRED,
                 source=self.name,
-                data={"slug": slug},
+                data={"slug": slug, "condition_id": cid},
+            ))
+            await self.bus.publish(Event(
+                event_type=EventType.MARKET_REMOVED,
+                source=self.name,
+                data={"condition_id": cid, "slug": slug, "reason": "expired"},
             ))
 
         if new_count:

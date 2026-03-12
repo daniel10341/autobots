@@ -32,6 +32,7 @@ class PriceAnalyzerAgent(BaseAgent):
     def _setup_subscriptions(self) -> None:
         self.bus.subscribe(EventType.MARKET_DISCOVERED, self._handle_market_discovered)
         self.bus.subscribe(EventType.MARKET_REMOVED, self._handle_market_removed)
+        self.bus.subscribe(EventType.MARKET_EXPIRED, self._handle_market_removed)
 
     async def _handle_market_discovered(self, event: Event) -> None:
         cid = event.data.get("condition_id", "")

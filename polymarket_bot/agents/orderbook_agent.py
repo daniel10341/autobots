@@ -23,6 +23,7 @@ class OrderBookAgent(BaseAgent):
         self.client = client
         self.tracked_tokens: dict[str, dict] = {}  # token_id -> market info
         self.book_snapshots: dict[str, dict] = {}
+        self._failed_tokens: dict[str, int] = {}  # token_id -> consecutive failures
 
     @property
     def cycle_interval(self) -> float:
@@ -31,6 +32,7 @@ class OrderBookAgent(BaseAgent):
     def _setup_subscriptions(self) -> None:
         self.bus.subscribe(EventType.MARKET_DISCOVERED, self._handle_market_discovered)
         self.bus.subscribe(EventType.MARKET_REMOVED, self._handle_market_removed)
+        self.bus.subscribe(EventType.MARKET_EXPIRED, self._handle_market_expired)
 
     async def _handle_market_discovered(self, event: Event) -> None:
         cid = event.data.get("condition_id", "")
@@ -43,10 +45,24 @@ class OrderBookAgent(BaseAgent):
 
     async def _handle_market_removed(self, event: Event) -> None:
         cid = event.data.get("condition_id", "")
+        self._remove_by_condition(cid)
+
+    async def _handle_market_expired(self, event: Event) -> None:
+        """Clean up tokens for expired markets (e.g. BTC 5m windows)."""
+        slug = event.data.get("slug", "")
+        cid = event.data.get("condition_id", "")
+        if cid:
+            self._remove_by_condition(cid)
+        # Also clean by slug if condition_id not provided
+        if slug and not cid:
+            self.logger.debug(f"Market expired: {slug}")
+
+    def _remove_by_condition(self, cid: str) -> None:
         to_remove = [tid for tid, info in self.tracked_tokens.items() if info["condition_id"] == cid]
         for tid in to_remove:
             self.tracked_tokens.pop(tid, None)
             self.book_snapshots.pop(tid, None)
+            self._failed_tokens.pop(tid, None)
 
     async def run_cycle(self) -> None:
         """Poll order books for all tracked tokens."""
@@ -54,12 +70,22 @@ class OrderBookAgent(BaseAgent):
             return
 
         for token_id, info in list(self.tracked_tokens.items()):
+            # Skip tokens that have failed too many times (likely expired/invalid)
+            if self._failed_tokens.get(token_id, 0) >= 5:
+                continue
+
             try:
-                raw_book = await asyncio.get_event_loop().run_in_executor(
-                    None, self.client.get_order_book, token_id
+                raw_book = await asyncio.wait_for(
+                    asyncio.get_running_loop().run_in_executor(
+                        None, self.client.get_order_book, token_id
+                    ),
+                    timeout=5.0,
                 )
                 side = Side.YES if info["side"] == "YES" else Side.NO
                 book = self.client.parse_order_book(raw_book, token_id, side)
+
+                # Reset failure count on success
+                self._failed_tokens.pop(token_id, None)
 
                 prev = self.book_snapshots.get(token_id)
                 snapshot = {
@@ -98,7 +124,14 @@ class OrderBookAgent(BaseAgent):
                             priority=3,
                         ))
 
+            except asyncio.TimeoutError:
+                self._failed_tokens[token_id] = self._failed_tokens.get(token_id, 0) + 1
+                self.logger.warning(f"Timeout fetching order book for {token_id[:12]}...")
             except Exception as e:
-                self.logger.error(f"Order book fetch failed for {token_id[:12]}...: {e}")
+                self._failed_tokens[token_id] = self._failed_tokens.get(token_id, 0) + 1
+                if self._failed_tokens[token_id] <= 3:
+                    self.logger.error(f"Order book fetch failed for {token_id[:12]}...: {e}")
+                elif self._failed_tokens[token_id] == 5:
+                    self.logger.warning(f"Giving up on {token_id[:12]}... after 5 failures (likely expired)")
 
             await asyncio.sleep(0.15)  # Rate limit

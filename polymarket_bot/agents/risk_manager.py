@@ -1,10 +1,11 @@
 """Agent 7: Risk Manager — Position limits, exposure caps, drawdown protection."""
 
-from datetime import datetime
+from typing import Optional
 
 from polymarket_bot.config import BotConfig
 from polymarket_bot.core.base_agent import BaseAgent
 from polymarket_bot.core.message_bus import MessageBus
+from polymarket_bot.core.polymarket_client import PolymarketClient
 from polymarket_bot.models.events import Event, EventType
 
 
@@ -15,20 +16,35 @@ class RiskManagerAgent(BaseAgent):
     - Per-market exposure limits
     - Total portfolio exposure
     - Max open orders
+    - Capital max (hard spending cap)
     - Drawdown thresholds
 
     Publishes RISK_CHECK_PASSED/FAILED and can trigger EMERGENCY_SHUTDOWN.
     """
 
-    def __init__(self, config: BotConfig, message_bus: MessageBus) -> None:
+    def __init__(self, config: BotConfig, message_bus: MessageBus, client: Optional[PolymarketClient] = None) -> None:
         super().__init__("RiskManager", config, message_bus)
+        self.client = client
         self.positions: dict[str, dict] = {}
         self.open_orders: dict[str, dict] = {}
         self.total_invested: float = 0.0
-        self.total_spent: float = 0.0  # Cumulative USDC spent (for capital_max)
         self.total_pnl: float = 0.0
         self.starting_balance: float = 0.0
         self.max_drawdown_pct: float = 0.10  # 10% max drawdown triggers shutdown
+
+    @property
+    def total_spent(self) -> float:
+        """Get total spent from the sim exchange (single source of truth).
+
+        This avoids drift between RiskManager's tracking and the actual
+        simulator state, especially when config changes (like capital_max)
+        are applied from the dashboard.
+        """
+        if self.client and self.client.sim_exchange:
+            return self.client.sim_exchange.total_spent
+        return self._fallback_spent
+
+    _fallback_spent: float = 0.0
 
     @property
     def cycle_interval(self) -> float:
@@ -75,10 +91,11 @@ class RiskManagerAgent(BaseAgent):
             ))
             return
 
-        # Check capital max (hard spending cap)
-        if trading.capital_max > 0 and self.total_spent + cost_per_pair > trading.capital_max:
+        # Check capital max (hard spending cap) — reads live from config
+        capital_max = trading.capital_max
+        if capital_max > 0 and self.total_spent + cost_per_pair > capital_max:
             self.logger.info(
-                f"Risk BLOCKED: capital max ${trading.capital_max:.2f} would be exceeded "
+                f"Risk BLOCKED: capital max ${capital_max:.2f} would be exceeded "
                 f"(spent: ${self.total_spent:.2f}, this order: ${cost_per_pair:.2f})"
             )
             await self.bus.publish(Event(
@@ -121,10 +138,11 @@ class RiskManagerAgent(BaseAgent):
     async def _handle_order_filled(self, event: Event) -> None:
         oid = event.data.get("order_id", "")
         self.open_orders.pop(oid, None)
-        # Track cumulative spending for capital_max enforcement
-        cost = event.data.get("price", 0) * event.data.get("size", 0)
-        if cost > 0:
-            self.total_spent += cost
+        # Fallback tracking for non-simulation mode
+        if not (self.client and self.client.sim_exchange):
+            cost = event.data.get("price", 0) * event.data.get("size", 0)
+            if cost > 0:
+                self._fallback_spent += cost
 
     async def _handle_order_cancelled(self, event: Event) -> None:
         oid = event.data.get("order_id", "")
@@ -166,5 +184,6 @@ class RiskManagerAgent(BaseAgent):
 
         self.logger.debug(
             f"Risk OK | Invested: ${self.total_invested:.2f} | "
+            f"Spent: ${self.total_spent:.2f} | "
             f"PnL: ${self.total_pnl:.2f} | Open orders: {len(self.open_orders)}"
         )

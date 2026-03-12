@@ -77,7 +77,7 @@ class CoordinatorAgent(BaseAgent):
         btc_scanner = BtcScannerAgent(cfg, bus, client)
         price_analyzer = PriceAnalyzerAgent(cfg, bus, client)
         orderbook = OrderBookAgent(cfg, bus, client)
-        risk_manager = RiskManagerAgent(cfg, bus)
+        risk_manager = RiskManagerAgent(cfg, bus, client)
         execution = ExecutionAgent(cfg, bus)
         yes_trader = YesTraderAgent(cfg, bus, client)
         no_trader = NoTraderAgent(cfg, bus, client)
