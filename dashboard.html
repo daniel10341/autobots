@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Polymarket Bot Dashboard</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, system-ui, sans-serif;
+    background: #0a0a0f;
+    color: #e0e0e0;
+    min-height: 100vh;
+    padding: 16px;
+  }
+  h1 { font-size: 20px; color: #00ff88; margin-bottom: 4px; }
+  .subtitle { color: #888; font-size: 13px; margin-bottom: 16px; }
+  .mode-badge {
+    display: inline-block; padding: 2px 10px; border-radius: 12px;
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    background: #1a3a2a; color: #00ff88; border: 1px solid #00ff88;
+  }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+  .card {
+    background: #12121a; border: 1px solid #1e1e2e;
+    border-radius: 12px; padding: 14px;
+  }
+  .card-full { grid-column: 1 / -1; }
+  .card-label { font-size: 11px; color: #666; text-transform: uppercase; letter-spacing: 1px; }
+  .card-value { font-size: 24px; font-weight: 700; margin-top: 4px; }
+  .green { color: #00ff88; }
+  .red { color: #ff4466; }
+  .yellow { color: #ffaa00; }
+  .blue { color: #4488ff; }
+
+  .agent-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .agent-pill {
+    display: flex; align-items: center; gap: 6px;
+    background: #1a1a24; border-radius: 8px; padding: 8px 10px; font-size: 12px;
+  }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .dot-green { background: #00ff88; box-shadow: 0 0 6px #00ff88; }
+  .dot-red { background: #ff4466; box-shadow: 0 0 6px #ff4466; }
+  .dot-gray { background: #444; }
+
+  .trades-list { max-height: 400px; overflow-y: auto; }
+  .trade-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 8px 0; border-bottom: 1px solid #1a1a24; font-size: 12px;
+  }
+  .trade-side { font-weight: 700; width: 32px; }
+  .trade-detail { color: #888; flex: 1; margin-left: 8px; }
+
+  .opp-row {
+    background: #0a1a10; border: 1px solid #1a3a2a;
+    border-radius: 8px; padding: 10px; margin-bottom: 6px; font-size: 12px;
+  }
+  .opp-question { color: #ccc; margin-bottom: 4px; }
+  .opp-stats { display: flex; gap: 12px; color: #00ff88; font-weight: 600; flex-wrap: wrap; }
+
+  .footer {
+    background: #12121a; border-top: 1px solid #1e1e2e;
+    padding: 12px 16px; margin-top: 20px; border-radius: 12px;
+    font-size: 11px; color: #666; text-align: center;
+  }
+</style>
+</head>
+<body>
+  <h1>Polymarket Market Maker</h1>
+  <div class="subtitle">
+    <span class="mode-badge">SIMULATION</span>
+    <span style="margin-left:8px;">Uptime: 22m+</span>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <div class="card-label">Balance</div>
+      <div class="card-value green">$505.24</div>
+    </div>
+    <div class="card">
+      <div class="card-label">P&L</div>
+      <div class="card-value green">+$105.45</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Trades</div>
+      <div class="card-value blue">117</div>
+    </div>
+    <div class="card">
+      <div class="card-label">BTC Markets</div>
+      <div class="card-value yellow">4</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Hedged Pairs</div>
+      <div class="card-value green">680</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Guaranteed Profit</div>
+      <div class="card-value green">$105.45</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Capital Spent</div>
+      <div class="card-value yellow">$494.76</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Capital Max</div>
+      <div class="card-value">$500.00</div>
+    </div>
+  </div>
+
+  <div class="card card-full" style="margin-bottom:12px;">
+    <div class="card-label" style="margin-bottom:8px;">Agents (10)</div>
+    <div class="agent-grid" id="agents">
+      <div class="agent-pill"><div class="dot dot-green"></div>PriceAnalyzer<span style="color:#444;margin-left:auto;font-size:10px;">202c</span></div>
+      <div class="agent-pill"><div class="dot dot-green"></div>OrderBook<span style="color:#444;margin-left:auto;font-size:10px;">228c</span></div>
+      <div class="agent-pill"><div class="dot dot-green"></div>RiskManager<span style="color:#444;margin-left:auto;font-size:10px;">134c</span></div>
+      <div class="agent-pill"><div class="dot dot-green"></div>Execution<span style="color:#444;margin-left:auto;font-size:10px;">669c</span></div>
+      <div class="agent-pill"><div class="dot dot-green"></div>YesTrader<span style="color:#444;margin-left:auto;font-size:10px;">45c</span></div>
+      <div class="agent-pill"><div class="dot dot-green"></div>NoTrader<span style="color:#444;margin-left:auto;font-size:10px;">45c</span></div>
+      <div class="agent-pill"><div class="dot dot-green"></div>Portfolio<span style="color:#444;margin-left:auto;font-size:10px;">90c</span></div>
+      <div class="agent-pill"><div class="dot dot-green"></div>MarketScanner<span style="color:#444;margin-left:auto;font-size:10px;">23c</span></div>
+      <div class="agent-pill"><div class="dot dot-green"></div>BtcScanner<span style="color:#444;margin-left:auto;font-size:10px;">45c</span></div>
+      <div class="agent-pill"><div class="dot dot-green"></div>Monitor<span style="color:#444;margin-left:auto;font-size:10px;">45c</span></div>
+    </div>
+  </div>
+
+  <div class="card card-full" style="margin-bottom:12px;">
+    <div class="card-label" style="margin-bottom:8px;">Active BTC 5-Min Opportunities</div>
+    <div id="opportunities">
+      <div class="opp-row">
+        <div class="opp-question">Bitcoin Up or Down - March 12, 12:25PM-12:30PM ET</div>
+        <div class="opp-stats">
+          <span>YES@0.010</span> <span>NO@0.495</span> <span>= 0.505</span> <span style="color:#00ff88;">Profit: $0.495</span>
+        </div>
+      </div>
+      <div class="opp-row">
+        <div class="opp-question">Bitcoin Up or Down - March 12, 12:05PM-12:10PM ET</div>
+        <div class="opp-stats">
+          <span>YES@0.505</span> <span>NO@0.495</span> <span>= 1.000</span> <span>Profit: $0.000</span>
+        </div>
+      </div>
+      <div class="opp-row">
+        <div class="opp-question">Bitcoin Up or Down - March 12, 12:10PM-12:15PM ET</div>
+        <div class="opp-stats">
+          <span>YES@0.495</span> <span>NO@0.505</span> <span>= 1.000</span> <span>Profit: $0.000</span>
+        </div>
+      </div>
+      <div class="opp-row">
+        <div class="opp-question">Bitcoin Up or Down - March 12, 12:15PM-12:20PM ET</div>
+        <div class="opp-stats">
+          <span>YES@0.505</span> <span>NO@0.495</span> <span>= 1.000</span> <span>Profit: $0.000</span>
+        </div>
+      </div>
+      <div class="opp-row">
+        <div class="opp-question">Bitcoin Up or Down - March 12, 12:20PM-12:25PM ET</div>
+        <div class="opp-stats">
+          <span>YES@0.505</span> <span>NO@0.495</span> <span>= 1.000</span> <span>Profit: $0.000</span>
+        </div>
+      </div>
+      <div class="opp-row">
+        <div class="opp-question">Bitcoin Up or Down - March 12, 12:30PM-12:35PM ET</div>
+        <div class="opp-stats">
+          <span>YES@0.550</span> <span>NO@0.460</span> <span>= 1.010</span> <span style="color:#ff4466;">Profit: -$0.010</span>
+        </div>
+      </div>
+      <div class="opp-row">
+        <div class="opp-question">Bitcoin Up or Down - March 12, 12:35PM-12:40PM ET</div>
+        <div class="opp-stats">
+          <span>YES@0.510</span> <span>NO@0.500</span> <span>= 1.010</span> <span style="color:#ff4466;">Profit: -$0.010</span>
+        </div>
+      </div>
+      <div class="opp-row">
+        <div class="opp-question">Bitcoin Up or Down - March 12, 12:40PM-12:45PM ET</div>
+        <div class="opp-stats">
+          <span>YES@0.510</span> <span>NO@0.500</span> <span>= 1.010</span> <span style="color:#ff4466;">Profit: -$0.010</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card card-full" style="margin-bottom:12px;">
+    <div class="card-label" style="margin-bottom:8px;">Recent Trades (last 20)</div>
+    <div class="trades-list">
+      <div class="trade-row"><span class="trade-side green">BUY</span><span class="trade-detail">NO 10@0.5006</span><span style="color:#888;">$5.01</span></div>
+      <div class="trade-row"><span class="trade-side green">BUY</span><span class="trade-detail">YES 10@0.5101</span><span style="color:#888;">$5.10</span></div>
+      <div class="trade-row"><span class="trade-side green">BUY</span><span class="trade-detail">NO 10@0.5001</span><span style="color:#888;">$5.00</span></div>
+      <div class="trade-row"><span class="trade-side green">BUY</span><span class="trade-detail">YES 10@0.5105</span><span style="color:#888;">$5.11</span></div>
+      <div class="trade-row"><span class="trade-side green">BUY</span><span class="trade-detail">NO 10@0.3400</span><span style="color:#888;">$3.40</span></div>
+      <div class="trade-row"><span class="trade-side green">BUY</span><span class="trade-detail">YES 10@0.6706</span><span style="color:#888;">$6.71</span></div>
+      <div class="trade-row"><span class="trade-side green">BUY</span><span class="trade-detail">NO 10@0.4954</span><span style="color:#888;">$4.95</span></div>
+      <div class="trade-row"><span class="trade-side green">BUY</span><span class="trade-detail">YES 10@0.0010</span><span style="color:#888;">$0.01</span></div>
+      <div class="trade-row"><span class="trade-side green">BUY</span><span class="trade-detail">NO 10@0.5004</span><span style="color:#888;">$5.00</span></div>
+      <div class="trade-row"><span class="trade-side green">BUY</span><span class="trade-detail">YES 10@0.5102</span><span style="color:#888;">$5.10</span></div>
+      <div class="trade-row"><span class="trade-side green">BUY</span><span class="trade-detail">NO 10@0.5009</span><span style="color:#888;">$5.01</span></div>
+      <div class="trade-row"><span class="trade-side green">BUY</span><span class="trade-detail">YES 10@0.5102</span><span style="color:#888;">$5.10</span></div>
+      <div class="trade-row"><span class="trade-side green">BUY</span><span class="trade-detail">NO 10@0.3402</span><span style="color:#888;">$3.40</span></div>
+      <div class="trade-row"><span class="trade-side green">BUY</span><span class="trade-detail">YES 10@0.6602</span><span style="color:#888;">$6.60</span></div>
+      <div class="trade-row"><span class="trade-side green">BUY</span><span class="trade-detail">NO 10@0.4957</span><span style="color:#888;">$4.96</span></div>
+      <div class="trade-row"><span class="trade-side green">BUY</span><span class="trade-detail">NO 10@0.5002</span><span style="color:#888;">$5.00</span></div>
+      <div class="trade-row"><span class="trade-side green">BUY</span><span class="trade-detail">YES 10@0.5101</span><span style="color:#888;">$5.10</span></div>
+      <div class="trade-row"><span class="trade-side green">BUY</span><span class="trade-detail">NO 10@0.5006</span><span style="color:#888;">$5.01</span></div>
+      <div class="trade-row"><span class="trade-side green">BUY</span><span class="trade-detail">YES 10@0.5103</span><span style="color:#888;">$5.10</span></div>
+      <div class="trade-row"><span class="trade-side green">BUY</span><span class="trade-detail">NO 10@0.4954</span><span style="color:#888;">$4.95</span></div>
+    </div>
+  </div>
+
+  <div class="card card-full">
+    <div class="card-label" style="margin-bottom:8px;">Positions (8 tokens)</div>
+    <div style="font-size:12px; color:#aaa;">
+      <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #1a1a24;"><span>Token ...8764462</span><span class="green">200 shares</span></div>
+      <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #1a1a24;"><span>Token ...9228600</span><span class="green">200 shares</span></div>
+      <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #1a1a24;"><span>Token ...4224792</span><span class="green">130 shares</span></div>
+      <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #1a1a24;"><span>Token ...4117752</span><span class="green">150 shares</span></div>
+      <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #1a1a24;"><span>Token ...1036323</span><span class="green">210 shares</span></div>
+      <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #1a1a24;"><span>Token ...3109821</span><span class="green">210 shares</span></div>
+      <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #1a1a24;"><span>Token ...5142997</span><span class="green">40 shares</span></div>
+      <div style="display:flex;justify-content:space-between;padding:4px 0;"><span>Token ...4429446</span><span class="green">30 shares</span></div>
+    </div>
+  </div>
+
+  <div class="footer">
+    Snapshot taken: March 12, 2026 at 12:30 PM UTC<br>
+    Bot running in simulation mode | $500 capital max | BTC 5-min markets only<br><br>
+    <strong>To run live on your phone:</strong><br>
+    Clone the repo and run: <code style="color:#00ff88;">python -m polymarket_bot --simulate --btc-only --capital-max 500</code>
+  </div>
+</body>
+</html>
