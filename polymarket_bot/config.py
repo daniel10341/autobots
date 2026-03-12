@@ -47,6 +47,7 @@ class TradingConfig:
     max_total_exposure: float = 5000.0  # Max total USDC across all markets
     max_open_orders: int = 50
     max_markets: int = 20  # Max concurrent markets
+    capital_max: float = 0.0  # Hard cap on total USDC spent (0 = unlimited)
 
     # Execution
     order_refresh_interval: float = 30.0  # Seconds between order refreshes
@@ -72,7 +73,7 @@ class AgentConfig:
     health_check_interval: float = 30.0
 
     # Coordinator
-    agent_startup_delay: float = 2.0  # Stagger agent startup
+    agent_startup_delay: float = 0.5  # Stagger agent startup
     shutdown_timeout: float = 30.0
 
     # Retry

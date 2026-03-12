@@ -25,6 +25,7 @@ class RiskManagerAgent(BaseAgent):
         self.positions: dict[str, dict] = {}
         self.open_orders: dict[str, dict] = {}
         self.total_invested: float = 0.0
+        self.total_spent: float = 0.0  # Cumulative USDC spent (for capital_max)
         self.total_pnl: float = 0.0
         self.starting_balance: float = 0.0
         self.max_drawdown_pct: float = 0.10  # 10% max drawdown triggers shutdown
@@ -74,6 +75,19 @@ class RiskManagerAgent(BaseAgent):
             ))
             return
 
+        # Check capital max (hard spending cap)
+        if trading.capital_max > 0 and self.total_spent + cost_per_pair > trading.capital_max:
+            self.logger.info(
+                f"Risk BLOCKED: capital max ${trading.capital_max:.2f} would be exceeded "
+                f"(spent: ${self.total_spent:.2f}, this order: ${cost_per_pair:.2f})"
+            )
+            await self.bus.publish(Event(
+                event_type=EventType.RISK_CHECK_FAILED,
+                source=self.name,
+                data={"condition_id": cid, "reason": "capital_max"},
+            ))
+            return
+
         # Check open order count
         if len(self.open_orders) >= trading.max_open_orders:
             self.logger.info("Risk BLOCKED: too many open orders")
@@ -107,6 +121,10 @@ class RiskManagerAgent(BaseAgent):
     async def _handle_order_filled(self, event: Event) -> None:
         oid = event.data.get("order_id", "")
         self.open_orders.pop(oid, None)
+        # Track cumulative spending for capital_max enforcement
+        cost = event.data.get("price", 0) * event.data.get("size", 0)
+        if cost > 0:
+            self.total_spent += cost
 
     async def _handle_order_cancelled(self, event: Event) -> None:
         oid = event.data.get("order_id", "")

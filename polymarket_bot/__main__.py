@@ -75,6 +75,12 @@ def parse_args() -> argparse.Namespace:
         help="Max number of markets to trade simultaneously",
     )
     parser.add_argument(
+        "--capital-max",
+        type=float,
+        default=None,
+        help="Hard cap on total USDC the bot will spend (0 = unlimited)",
+    )
+    parser.add_argument(
         "--port",
         type=int,
         default=8080,
@@ -107,6 +113,8 @@ def main() -> None:
         config.trading.min_profit_margin = args.min_profit
     if args.max_markets is not None:
         config.trading.max_markets = args.max_markets
+    if args.capital_max is not None:
+        config.trading.capital_max = args.capital_max
 
     setup_logging(config.log_level, config.log_file)
 
@@ -119,6 +127,9 @@ def main() -> None:
         logger.info("*** DRY RUN MODE — No real orders will be placed ***")
     else:
         logger.warning("*** LIVE TRADING MODE — Real money at risk! ***")
+
+    if config.trading.capital_max > 0:
+        logger.info(f"*** CAPITAL MAX: ${config.trading.capital_max:.2f} — bot will stop spending beyond this ***")
 
     coordinator = CoordinatorAgent(config)
 

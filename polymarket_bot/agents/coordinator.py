@@ -12,6 +12,7 @@ from polymarket_bot.core.dashboard import Dashboard
 from polymarket_bot.models.events import Event, EventType
 
 from polymarket_bot.agents.market_scanner import MarketScannerAgent
+from polymarket_bot.agents.btc_scanner import BtcScannerAgent
 from polymarket_bot.agents.price_analyzer import PriceAnalyzerAgent
 from polymarket_bot.agents.orderbook_agent import OrderBookAgent
 from polymarket_bot.agents.yes_trader import YesTraderAgent
@@ -43,6 +44,7 @@ class CoordinatorAgent(BaseAgent):
             config.polymarket,
             simulate=config.simulate,
             sim_balance=config.sim_balance,
+            capital_max=config.trading.capital_max,
         )
         self.agents: list[BaseAgent] = []
         self._shutdown_event = asyncio.Event()
@@ -72,6 +74,7 @@ class CoordinatorAgent(BaseAgent):
         client = self.client
 
         market_scanner = MarketScannerAgent(cfg, bus, client)
+        btc_scanner = BtcScannerAgent(cfg, bus, client)
         price_analyzer = PriceAnalyzerAgent(cfg, bus, client)
         orderbook = OrderBookAgent(cfg, bus, client)
         risk_manager = RiskManagerAgent(cfg, bus)
@@ -82,12 +85,14 @@ class CoordinatorAgent(BaseAgent):
 
         # Keep references for dashboard
         self._market_scanner = market_scanner
+        self._btc_scanner = btc_scanner
         self._price_analyzer = price_analyzer
         self._portfolio = portfolio
         self._execution = execution
 
         agents = [
             market_scanner,
+            btc_scanner,
             price_analyzer,
             orderbook,
             risk_manager,
@@ -151,6 +156,19 @@ class CoordinatorAgent(BaseAgent):
 
         # Markets tracked
         markets_tracked = len(self._market_scanner.known_markets) if self._market_scanner else 0
+        btc_markets = len(self._btc_scanner.active_markets) if self._btc_scanner else 0
+
+        # BTC 5m market info
+        btc_5m = []
+        if self._btc_scanner:
+            for slug, data in self._btc_scanner.active_markets.items():
+                btc_5m.append({
+                    "question": data.get("question", ""),
+                    "yes_price": data.get("yes_price", 0),
+                    "no_price": data.get("no_price", 0),
+                    "window_start": data.get("window_start", 0),
+                    "window_end": data.get("window_end", 0),
+                })
 
         return {
             "mode": mode,
@@ -158,6 +176,8 @@ class CoordinatorAgent(BaseAgent):
             "simulation": sim_data,
             "portfolio": portfolio_data,
             "opportunities": opportunities,
+            "btc_5m": btc_5m,
+            "btc_markets": btc_markets,
             "recent_trades": recent_trades,
             "markets_tracked": markets_tracked,
         }

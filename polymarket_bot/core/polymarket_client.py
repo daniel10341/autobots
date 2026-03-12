@@ -31,14 +31,14 @@ class PolymarketClient:
     In simulation mode, uses real market data but simulated execution.
     """
 
-    def __init__(self, config: PolymarketConfig, simulate: bool = False, sim_balance: float = 1000.0) -> None:
+    def __init__(self, config: PolymarketConfig, simulate: bool = False, sim_balance: float = 1000.0, capital_max: float = 0.0) -> None:
         self.config = config
         self._clob: Optional[ClobClient] = None
         self._http = httpx.AsyncClient(timeout=30.0)
         self.simulate = simulate
         self.sim_exchange: Optional[SimulatedExchange] = None
         if simulate:
-            self.sim_exchange = SimulatedExchange(starting_balance=sim_balance)
+            self.sim_exchange = SimulatedExchange(starting_balance=sim_balance, capital_max=capital_max)
 
     def connect(self) -> None:
         """Initialize the CLOB client with credentials."""

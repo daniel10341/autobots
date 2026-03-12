@@ -133,6 +133,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       <div class="card-label">Guaranteed Profit</div>
       <div class="card-value green" id="guaranteed">$0.00</div>
     </div>
+    <div class="card">
+      <div class="card-label">Capital Spent</div>
+      <div class="card-value yellow" id="capital-spent">$0.00</div>
+    </div>
+    <div class="card">
+      <div class="card-label">Capital Max</div>
+      <div class="card-value" id="capital-max">Unlimited</div>
+    </div>
   </div>
 
   <div class="card card-full" style="margin-bottom:12px;">
@@ -182,6 +190,11 @@ async function fetchData() {
     const portfolio = d.portfolio || {};
     document.getElementById('hedged').textContent = (portfolio.hedged_pairs || 0).toFixed(1);
     document.getElementById('guaranteed').textContent = '$' + (portfolio.guaranteed_profit || 0).toFixed(2);
+
+    // Capital tracking
+    document.getElementById('capital-spent').textContent = '$' + (sim.total_spent || 0).toFixed(2);
+    const capMax = sim.capital_max || 0;
+    document.getElementById('capital-max').textContent = capMax > 0 ? '$' + capMax.toFixed(2) : 'Unlimited';
 
     // Agents
     const agentsEl = document.getElementById('agents');

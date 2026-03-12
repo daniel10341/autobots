@@ -17,9 +17,11 @@ class SimulatedExchange:
     simulated fills, slippage, and latency.
     """
 
-    def __init__(self, starting_balance: float = 1000.0) -> None:
+    def __init__(self, starting_balance: float = 1000.0, capital_max: float = 0.0) -> None:
         self.balance = starting_balance
         self.starting_balance = starting_balance
+        self.capital_max = capital_max  # 0 = unlimited
+        self.total_spent: float = 0.0
         self.positions: dict[str, float] = {}  # token_id -> shares held
         self.order_counter = 0
         self.orders: dict[str, dict] = {}
@@ -74,7 +76,15 @@ class SimulatedExchange:
                 logger.warning(f"[SIM] Insufficient balance: need ${total_cost:.2f}, have ${self.balance:.2f}")
                 return {"orderID": order_id, "status": "FAILED", "error": "insufficient_balance"}
 
+            if self.capital_max > 0 and self.total_spent + total_cost > self.capital_max:
+                logger.warning(
+                    f"[SIM] Capital max ${self.capital_max:.2f} reached "
+                    f"(spent: ${self.total_spent:.2f}, this: ${total_cost:.2f})"
+                )
+                return {"orderID": order_id, "status": "FAILED", "error": "capital_max_reached"}
+
             self.balance -= total_cost
+            self.total_spent += total_cost
             self.positions[token_id] = self.positions.get(token_id, 0) + size
         else:
             current = self.positions.get(token_id, 0)
@@ -141,6 +151,8 @@ class SimulatedExchange:
         return {
             "balance": round(self.balance, 2),
             "starting_balance": self.starting_balance,
+            "capital_max": self.capital_max,
+            "total_spent": round(self.total_spent, 2),
             "pnl": round(self.pnl, 2),
             "pnl_pct": round(self.pnl / self.starting_balance * 100, 2),
             "total_trades": len(self.trade_history),
