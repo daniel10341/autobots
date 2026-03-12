@@ -6,6 +6,9 @@ import logging
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from polymarket_bot.config import BotConfig
 from polymarket_bot.agents.coordinator import CoordinatorAgent
 
