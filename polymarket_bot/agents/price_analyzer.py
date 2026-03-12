@@ -84,20 +84,8 @@ class PriceAnalyzerAgent(BaseAgent):
             yes_book = self.client.parse_order_book(yes_book_raw, yes_token_id, Side.YES)
             no_book = self.client.parse_order_book(no_book_raw, no_token_id, Side.NO)
         except Exception as e:
-            self.logger.warning(f"Order book fetch failed for {condition_id[:12]}...: {e} — using discovery prices")
-            # Fall back to discovery prices so we can still trade
-            yes_price = market_data.get("yes_price", 0)
-            no_price = market_data.get("no_price", 0)
-            if yes_price <= 0 or no_price <= 0:
-                return
-            yes_book = self.client.parse_order_book(
-                {"bids": [], "asks": [{"price": str(yes_price), "size": "100"}]},
-                yes_token_id, Side.YES,
-            )
-            no_book = self.client.parse_order_book(
-                {"bids": [], "asks": [{"price": str(no_price), "size": "100"}]},
-                no_token_id, Side.NO,
-            )
+            self.logger.debug(f"Order book fetch failed for {condition_id[:12]}...: {e} — skipping")
+            return
 
         # Use order book best ask if available, otherwise fall back to discovery prices
         yes_ask = yes_book.best_ask if yes_book.asks else market_data.get("yes_price", 0)

@@ -128,6 +128,12 @@ class OrderBookAgent(BaseAgent):
                 self._failed_tokens[token_id] = self._failed_tokens.get(token_id, 0) + 1
                 self.logger.warning(f"Timeout fetching order book for {token_id[:12]}...")
             except Exception as e:
+                # Immediately remove tokens that return 404 (expired/invalid market)
+                if "404" in str(e) or "No orderbook exists" in str(e):
+                    self.logger.info(f"Removing expired token {token_id[:12]}... (no orderbook)")
+                    self._failed_tokens[token_id] = 999  # Skip permanently
+                    continue
+
                 self._failed_tokens[token_id] = self._failed_tokens.get(token_id, 0) + 1
                 if self._failed_tokens[token_id] <= 3:
                     self.logger.error(f"Order book fetch failed for {token_id[:12]}...: {e}")
