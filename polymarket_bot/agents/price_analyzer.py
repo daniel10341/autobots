@@ -132,13 +132,8 @@ class PriceAnalyzerAgent(BaseAgent):
 
         trading = self.config.trading
 
-        # In simulation mode, widen thresholds to show the strategy in action
-        if self.config.simulate:
-            max_cost = 1.02  # Accept up to 2c loss in sim to demonstrate trading
-            min_profit = -0.02
-        else:
-            max_cost = trading.max_combined_cost
-            min_profit = trading.min_profit_margin
+        max_cost = trading.max_combined_cost
+        min_profit = trading.min_profit_margin
 
         # Check if this is a profitable opportunity
         if combined_cost < max_cost and profit_per_pair >= min_profit:
